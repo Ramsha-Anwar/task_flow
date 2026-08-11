@@ -34,6 +34,7 @@ import { UsersModule } from './users/users.module';
         uri: configService.get('MONGO_URL'),
       }),
     }),
+  
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -25,5 +25,12 @@ export class UsersService {
     return this.userRepository.save(newUser);
   }
 
-  
+
+  async findOneById(id: string): Promise<User | null> {
+    const user = await this.userRepository.findOne({ where: { id } });
+    if(!user){
+      return null;
+    }
+    return user;
+  }
 }
