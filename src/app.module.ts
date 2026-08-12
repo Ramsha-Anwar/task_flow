@@ -1,3 +1,5 @@
+import { WorkspaceController } from './workspace/workspace.controller';
+import { WorkspaceModule } from './workspace/workspace.module';
 import { AuthModule } from './auth/auth.module';
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
@@ -10,7 +12,7 @@ import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
-      ConfigModule.forRoot({
+    ConfigModule.forRoot({
       isGlobal: true,
     }),
     TypeOrmModule.forRootAsync({
@@ -20,13 +22,15 @@ import { UsersModule } from './users/users.module';
         type: 'postgres',
         url: configService.get('POSTGRES_URL'),
         autoLoadEntities: true, synchronize: true
-      }),   
+      }),
     }),
 
     UsersModule,
- 
+
     AuthModule,
- 
+
+    WorkspaceModule,
+
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -34,9 +38,10 @@ import { UsersModule } from './users/users.module';
         uri: configService.get('MONGO_URL'),
       }),
     }),
-  
+
   ],
-  controllers: [AppController],
+  controllers: [
+    WorkspaceController, AppController],
   providers: [AppService],
 })
 export class AppModule { }
