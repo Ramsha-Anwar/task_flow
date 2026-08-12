@@ -31,4 +31,10 @@ export class WorkspaceService {
       return savedWorkspace;
     });
   }
+  async findWorkspaceById(workspaceId: string): Promise<Workspace | null> {
+    return this.workspaceRepository.findOne({
+      where: { id: workspaceId },
+      
+    });
+  }
 }

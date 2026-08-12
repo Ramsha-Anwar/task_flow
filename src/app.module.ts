@@ -41,7 +41,7 @@ import { UsersModule } from './users/users.module';
 
   ],
   controllers: [
-    WorkspaceController, AppController],
+     AppController],
   providers: [AppService],
 })
 export class AppModule { }
