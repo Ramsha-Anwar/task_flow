@@ -1,4 +1,4 @@
-import { Get, Post, Patch, Body, Controller, Param, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import { Get, Post, Patch, Body, Controller, Param, Req, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import { TaskService } from './task.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { MoveTaskDto } from './dto/move-task.dto';
@@ -22,8 +22,9 @@ export class TaskController {
     @Param('columnId', ParseUUIDPipe) columnId: string,
     @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
     @Body() dto: CreateTaskDto,
+    @Req() req,
   ) {
-    return this.taskService.createTask(columnId, workspaceId, dto);
+    return this.taskService.createTask(columnId, workspaceId, dto, req.user.id);
   }
 
   @UseGuards(AuthGuard('jwt'), WorkspaceRolesGuard)
@@ -31,8 +32,10 @@ export class TaskController {
   @Patch('tasks/:taskId/move')
   async moveTask(
     @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
     @Body() dto: MoveTaskDto,
+    @Req() req,
   ) {
-    return this.taskService.moveTask(taskId, dto);
+    return this.taskService.moveTask(taskId, workspaceId, dto, req.user.id);
   }
 }
