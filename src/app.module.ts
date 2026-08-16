@@ -11,6 +11,8 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { UsersModule } from './users/users.module';
 import { BoardModule } from './board/board.module';
 import { TaskModule } from './task/task.module';
+import { CommentModule } from './comment/comment.module';
+import { AttachmentModule } from './attachment/attachment.module';
 
 @Module({
   imports: [
@@ -34,6 +36,8 @@ import { TaskModule } from './task/task.module';
     BoardModule,
     ColumnModule,
     TaskModule,
+    CommentModule,
+    AttachmentModule,
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
