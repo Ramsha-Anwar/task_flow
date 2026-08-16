@@ -2,6 +2,7 @@ import { Controller, Post, Body, UseGuards, Req, Get, Param, ParseUUIDPipe } fro
 import { WorkspaceService } from './workspace.service';
 import { AuthGuard } from '@nestjs/passport';
 import { CreateWorkspaceDto } from './dto/create-workspace.dto';
+import { AddMemberDto } from './dto/add-member.dto';
 import { WorkspaceRolesGuard } from './workspace-roles.guard';
 import { Roles } from './roles.decorator';
 
@@ -26,5 +27,15 @@ export class WorkspaceController {
   @Get(':workspaceId')
   getWorkspace(@Param('workspaceId', ParseUUIDPipe) workspaceId: string) {
     return this.workspaceService.findWorkspaceById(workspaceId);
+  }
+
+  @UseGuards(AuthGuard('jwt'), WorkspaceRolesGuard)
+  @Roles('admin')
+  @Post(':workspaceId/members')
+  addMember(
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @Body() dto: AddMemberDto,
+  ) {
+    return this.workspaceService.addMember(workspaceId, dto);
   }
 }
