@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Req, Get, Param } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Req, Get, Param, ParseUUIDPipe } from '@nestjs/common';
 import { WorkspaceService } from './workspace.service';
 import { AuthGuard } from '@nestjs/passport';
 import { CreateWorkspaceDto } from './dto/create-workspace.dto';
@@ -24,7 +24,7 @@ export class WorkspaceController {
   @UseGuards(AuthGuard('jwt'), WorkspaceRolesGuard)
   @Roles('admin')
   @Get(':workspaceId')
-  getWorkspace(@Param('workspaceId') workspaceId: string) {
+  getWorkspace(@Param('workspaceId', ParseUUIDPipe) workspaceId: string) {
     return this.workspaceService.findWorkspaceById(workspaceId);
   }
 }

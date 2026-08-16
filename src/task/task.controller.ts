@@ -1,4 +1,4 @@
-import { Get, Post, Patch, Body, Controller, Param, UseGuards } from '@nestjs/common';
+import { Get, Post, Patch, Body, Controller, Param, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import { TaskService } from './task.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { MoveTaskDto } from './dto/move-task.dto';
@@ -11,7 +11,7 @@ export class TaskController {
   constructor(private taskService: TaskService) {}
 
   @Get('tasks')
-  async getTasksByColumnId(@Param('columnId') columnId: string) {
+  async getTasksByColumnId(@Param('columnId', ParseUUIDPipe) columnId: string) {
     return this.taskService.findTasksByColumnId(columnId);
   }
 
@@ -19,8 +19,8 @@ export class TaskController {
   @Roles('admin')
   @Post('tasks')
   async createTask(
-    @Param('columnId') columnId: string,
-    @Param('workspaceId') workspaceId: string,
+    @Param('columnId', ParseUUIDPipe) columnId: string,
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
     @Body() dto: CreateTaskDto,
   ) {
     return this.taskService.createTask(columnId, workspaceId, dto);
@@ -29,7 +29,10 @@ export class TaskController {
   @UseGuards(AuthGuard('jwt'), WorkspaceRolesGuard)
   @Roles('admin')
   @Patch('tasks/:taskId/move')
-  async moveTask(@Param('taskId') taskId: string, @Body() dto: MoveTaskDto) {
+  async moveTask(
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Body() dto: MoveTaskDto,
+  ) {
     return this.taskService.moveTask(taskId, dto);
   }
 }

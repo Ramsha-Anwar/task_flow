@@ -1,5 +1,6 @@
 import { Column, PrimaryGeneratedColumn , Entity, CreateDateColumn,OneToMany } from "typeorm";
 import {WorkspaceMember} from "./workspace-member.entity";
+import { Project } from "../../projects/entity/project.entity";
 
 @Entity()
 export class Workspace {
@@ -18,4 +19,6 @@ export class Workspace {
   @OneToMany(() => WorkspaceMember, (workspaceMember) => workspaceMember.workspace)
   members!: WorkspaceMember[];
 
+  @OneToMany(() => Project, (project) => project.workspace)
+  projects!: Project[];
 }
