@@ -3,6 +3,11 @@ import { Document } from 'mongoose';
 
 export type NotificationDocument = Notification & Document;
 
+/**
+ * Mongo schema for a single notification, created by NotificationListener
+ * in response to task/comment/attachment events and read via
+ * NotificationService (see notification.service.ts).
+ */
 @Schema({ timestamps: true })
 export class Notification {
   @Prop({ required: true })
