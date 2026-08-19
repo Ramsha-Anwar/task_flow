@@ -1,0 +1,47 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: taskflow_app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - POSTGRES_URL=postgresql://postgres:postgres@postgres:5432/taskflow
+      - MONGO_URL=mongodb://mongo:27017/taskflow
+      - JWT_SECRET=change_this_to_a_secure_random_secret_in_production
+    depends_on:
+      - postgres
+      - mongo
+    volumes:
+      - uploads_data:/usr/src/app/uploads
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: taskflow_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: taskflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  mongo:
+    image: mongo:7-jammy
+    container_name: taskflow_mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  postgres_data:
+  mongo_data:
+  uploads_data:
