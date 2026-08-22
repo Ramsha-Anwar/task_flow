@@ -1,7 +1,17 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createTestApp } from './utils/test-app.util';
+import { createTestApp } from '../utils/test-app.util';
+import {
+  signupAndLogin,
+  createWorkspaceSeed,
+  addWorkspaceMemberSeed,
+  createProjectSeed,
+  createBoardSeed,
+} from '../utils/seed-helpers';
 
+/**
+ * End-to-end tests for Column creation, listing, and board association.
+ */
 describe('Column (e2e)', () => {
   let app: INestApplication;
   let adminToken: string;
@@ -26,52 +36,37 @@ describe('Column (e2e)', () => {
   beforeAll(async () => {
     app = await createTestApp();
 
-    // Signup & login Admin User
-    await request(app.getHttpServer())
-      .post('/auth/signup')
-      .send(adminUser);
+    const admin = await signupAndLogin(app, adminUser);
+    adminToken = admin.token;
 
-    const adminLogin = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: adminUser.email, password: adminUser.password });
-    adminToken = adminLogin.body.accessToken;
+    const member = await signupAndLogin(app, memberUser);
+    memberToken = member.token;
 
-    // Signup & login Member User
-    const memberSignup = await request(app.getHttpServer())
-      .post('/auth/signup')
-      .send(memberUser);
-
-    const memberLogin = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: memberUser.email, password: memberUser.password });
-    memberToken = memberLogin.body.accessToken;
-
-    // Create Workspace
-    const wsRes = await request(app.getHttpServer())
-      .post('/workspaces')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Column Test Workspace' });
-    workspaceId = wsRes.body.id;
-
-    // Add Member
-    await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/members`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ userId: memberSignup.body.id, role: 'member' });
-
-    // Create Project
-    const prjRes = await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/projects`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Column Test Project' });
-    projectId = prjRes.body.id;
-
-    // Create Board
-    const brdRes = await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/projects/${projectId}/boards`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Column Test Board' });
-    boardId = brdRes.body.id;
+    workspaceId = await createWorkspaceSeed(
+      app,
+      adminToken,
+      'Column Test Workspace',
+    );
+    await addWorkspaceMemberSeed(
+      app,
+      adminToken,
+      workspaceId,
+      member.userId,
+      'member',
+    );
+    projectId = await createProjectSeed(
+      app,
+      adminToken,
+      workspaceId,
+      'Column Test Project',
+    );
+    boardId = await createBoardSeed(
+      app,
+      adminToken,
+      workspaceId,
+      projectId,
+      'Column Test Board',
+    );
   });
 
   afterAll(async () => {
@@ -79,54 +74,84 @@ describe('Column (e2e)', () => {
   });
 
   describe('POST /workspaces/:workspaceId/projects/:projectId/boards/:boardId/columns', () => {
+    /**
+     * Rejects request without authentication.
+     */
     it('rejects creation without JWT token (401)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns`,
+        )
         .send({ name: 'To Do', position: 1 });
 
       expect(res.status).toBe(401);
     });
 
+    /**
+     * Rejects column creation by regular workspace member.
+     */
     it('rejects creation by non-admin workspace member (403)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns`,
+        )
         .set('Authorization', `Bearer ${memberToken}`)
         .send({ name: 'To Do', position: 1 });
 
       expect(res.status).toBe(403);
     });
 
+    /**
+     * Rejects creation when required fields are missing.
+     */
     it('rejects creation with missing required fields (400)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({});
 
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Validates board UUID in URL path.
+     */
     it('rejects creation with malformed board UUID (400)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/invalid-uuid/columns`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/invalid-uuid/columns`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'To Do', position: 1 });
 
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Returns 404 when board does not exist.
+     */
     it('returns 404 when parent board does not exist', async () => {
       const nonexistentBoardUuid = '00000000-0000-0000-0000-000000000000';
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${nonexistentBoardUuid}/columns`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${nonexistentBoardUuid}/columns`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'To Do', position: 1 });
 
       expect(res.status).toBe(404);
     });
 
+    /**
+     * Successfully creates column on board.
+     */
     it('creates a new column as workspace admin (201)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'To Do', position: 1 });
 
@@ -140,9 +165,13 @@ describe('Column (e2e)', () => {
   });
 
   describe('GET /workspaces/:workspaceId/projects/:projectId/boards/:boardId/columns', () => {
+    /**
+     * Verifies column retrieval on open route.
+     */
     it('returns columns list on open route without auth token', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns`);
+      const res = await request(app.getHttpServer()).get(
+        `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns`,
+      );
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
@@ -150,17 +179,25 @@ describe('Column (e2e)', () => {
       expect(names).toContain('To Do');
     });
 
+    /**
+     * Validates malformed board UUID format.
+     */
     it('returns 400 for malformed board UUID', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/workspaces/${workspaceId}/projects/${projectId}/boards/invalid-uuid/columns`);
+      const res = await request(app.getHttpServer()).get(
+        `/workspaces/${workspaceId}/projects/${projectId}/boards/invalid-uuid/columns`,
+      );
 
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Returns 404 for nonexistent board.
+     */
     it('returns 404 when parent board does not exist', async () => {
       const nonexistentBoardUuid = '00000000-0000-0000-0000-000000000000';
-      const res = await request(app.getHttpServer())
-        .get(`/workspaces/${workspaceId}/projects/${projectId}/boards/${nonexistentBoardUuid}/columns`);
+      const res = await request(app.getHttpServer()).get(
+        `/workspaces/${workspaceId}/projects/${projectId}/boards/${nonexistentBoardUuid}/columns`,
+      );
 
       expect(res.status).toBe(404);
     });

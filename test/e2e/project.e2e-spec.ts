@@ -1,7 +1,15 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createTestApp } from './utils/test-app.util';
+import { createTestApp } from '../utils/test-app.util';
+import {
+  signupAndLogin,
+  createWorkspaceSeed,
+  addWorkspaceMemberSeed,
+} from '../utils/seed-helpers';
 
+/**
+ * End-to-end tests for Project creation, listing, and workspace permission validation.
+ */
 describe('Project (e2e)', () => {
   let app: INestApplication;
   let adminToken: string;
@@ -24,38 +32,24 @@ describe('Project (e2e)', () => {
   beforeAll(async () => {
     app = await createTestApp();
 
-    // Signup & login Admin User
-    await request(app.getHttpServer())
-      .post('/auth/signup')
-      .send(adminUser);
+    const admin = await signupAndLogin(app, adminUser);
+    adminToken = admin.token;
 
-    const adminLogin = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: adminUser.email, password: adminUser.password });
-    adminToken = adminLogin.body.accessToken;
+    const member = await signupAndLogin(app, memberUser);
+    memberToken = member.token;
 
-    // Signup & login Member User
-    const memberSignup = await request(app.getHttpServer())
-      .post('/auth/signup')
-      .send(memberUser);
-
-    const memberLogin = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: memberUser.email, password: memberUser.password });
-    memberToken = memberLogin.body.accessToken;
-
-    // Create a Workspace for testing
-    const wsRes = await request(app.getHttpServer())
-      .post('/workspaces')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Project Test Workspace' });
-    workspaceId = wsRes.body.id;
-
-    // Add member user to workspace as regular member
-    await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/members`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ userId: memberSignup.body.id, role: 'member' });
+    workspaceId = await createWorkspaceSeed(
+      app,
+      adminToken,
+      'Project Test Workspace',
+    );
+    await addWorkspaceMemberSeed(
+      app,
+      adminToken,
+      workspaceId,
+      member.userId,
+      'member',
+    );
   });
 
   afterAll(async () => {
@@ -63,6 +57,9 @@ describe('Project (e2e)', () => {
   });
 
   describe('POST /workspaces/:workspaceId/projects', () => {
+    /**
+     * Rejects request when JWT is missing.
+     */
     it('rejects creation without JWT token (401)', async () => {
       const res = await request(app.getHttpServer())
         .post(`/workspaces/${workspaceId}/projects`)
@@ -71,6 +68,9 @@ describe('Project (e2e)', () => {
       expect(res.status).toBe(401);
     });
 
+    /**
+     * Rejects project creation by non-admin workspace member.
+     */
     it('rejects creation by non-admin workspace member (403)', async () => {
       const res = await request(app.getHttpServer())
         .post(`/workspaces/${workspaceId}/projects`)
@@ -80,6 +80,9 @@ describe('Project (e2e)', () => {
       expect(res.status).toBe(403);
     });
 
+    /**
+     * Rejects project creation when required name is missing.
+     */
     it('rejects creation with missing required name field (400)', async () => {
       const res = await request(app.getHttpServer())
         .post(`/workspaces/${workspaceId}/projects`)
@@ -89,6 +92,9 @@ describe('Project (e2e)', () => {
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Rejects project creation if workspace ID is not a valid UUID.
+     */
     it('rejects creation with malformed workspace UUID (400)', async () => {
       const res = await request(app.getHttpServer())
         .post('/workspaces/invalid-uuid/projects')
@@ -98,6 +104,9 @@ describe('Project (e2e)', () => {
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Rejects creation when target workspace does not exist.
+     */
     it('returns 403 or 404 for nonexistent workspace UUID', async () => {
       const nonexistentUuid = '00000000-0000-0000-0000-000000000000';
       const res = await request(app.getHttpServer())
@@ -108,6 +117,9 @@ describe('Project (e2e)', () => {
       expect([403, 404]).toContain(res.status);
     });
 
+    /**
+     * Successfully creates a project under a workspace as an admin.
+     */
     it('creates a new project as workspace admin (201)', async () => {
       const res = await request(app.getHttpServer())
         .post(`/workspaces/${workspaceId}/projects`)
@@ -123,9 +135,13 @@ describe('Project (e2e)', () => {
   });
 
   describe('GET /workspaces/:workspaceId/projects', () => {
+    /**
+     * Verifies that projects can be retrieved on open route.
+     */
     it('returns projects list on open route without auth token', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/workspaces/${workspaceId}/projects`);
+      const res = await request(app.getHttpServer()).get(
+        `/workspaces/${workspaceId}/projects`,
+      );
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
@@ -133,17 +149,25 @@ describe('Project (e2e)', () => {
       expect(names).toContain('Backend Revamp');
     });
 
+    /**
+     * Validates that malformed workspace UUID results in 400.
+     */
     it('returns 400 for malformed workspace UUID', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/workspaces/not-a-uuid/projects');
+      const res = await request(app.getHttpServer()).get(
+        '/workspaces/not-a-uuid/projects',
+      );
 
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Validates that querying a nonexistent workspace returns 404.
+     */
     it('returns 404 for nonexistent workspace UUID', async () => {
       const nonexistentUuid = '00000000-0000-0000-0000-000000000000';
-      const res = await request(app.getHttpServer())
-        .get(`/workspaces/${nonexistentUuid}/projects`);
+      const res = await request(app.getHttpServer()).get(
+        `/workspaces/${nonexistentUuid}/projects`,
+      );
 
       expect(res.status).toBe(404);
     });

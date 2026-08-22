@@ -1,12 +1,22 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createTestApp } from './utils/test-app.util';
+import { createTestApp } from '../utils/test-app.util';
+import {
+  signupAndLogin,
+  createWorkspaceSeed,
+  addWorkspaceMemberSeed,
+  createProjectSeed,
+  createBoardSeed,
+  createColumnSeed,
+} from '../utils/seed-helpers';
 
+/**
+ * End-to-end tests for Task lifecycle, validation, permissions, and moving between columns.
+ */
 describe('Task (e2e)', () => {
   let app: INestApplication;
   let adminToken: string;
   let memberToken: string;
-  let adminUserId: string;
   let memberUserId: string;
   let nonMemberUserId: string;
 
@@ -39,87 +49,73 @@ describe('Task (e2e)', () => {
   beforeAll(async () => {
     app = await createTestApp();
 
-    // Signup & login Admin User
-    const adminSignup = await request(app.getHttpServer())
-      .post('/auth/signup')
-      .send(adminUser);
-    adminUserId = adminSignup.body.id;
+    const admin = await signupAndLogin(app, adminUser);
+    adminToken = admin.token;
 
-    const adminLogin = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: adminUser.email, password: adminUser.password });
-    adminToken = adminLogin.body.accessToken;
+    const member = await signupAndLogin(app, memberUser);
+    memberToken = member.token;
+    memberUserId = member.userId;
 
-    // Signup & login Member User
-    const memberSignup = await request(app.getHttpServer())
-      .post('/auth/signup')
-      .send(memberUser);
-    memberUserId = memberSignup.body.id;
+    const outsider = await signupAndLogin(app, outsiderUser);
+    nonMemberUserId = outsider.userId;
 
-    const memberLogin = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: memberUser.email, password: memberUser.password });
-    memberToken = memberLogin.body.accessToken;
+    workspaceId = await createWorkspaceSeed(app, adminToken, 'Task Workspace');
+    await addWorkspaceMemberSeed(
+      app,
+      adminToken,
+      workspaceId,
+      memberUserId,
+      'member',
+    );
 
-    // Signup Outsider User (not added to workspace)
-    const outsiderSignup = await request(app.getHttpServer())
-      .post('/auth/signup')
-      .send(outsiderUser);
-    nonMemberUserId = outsiderSignup.body.id;
+    projectId = await createProjectSeed(
+      app,
+      adminToken,
+      workspaceId,
+      'Task Project',
+    );
+    boardId = await createBoardSeed(
+      app,
+      adminToken,
+      workspaceId,
+      projectId,
+      'Main Board',
+    );
+    secondBoardId = await createBoardSeed(
+      app,
+      adminToken,
+      workspaceId,
+      projectId,
+      'Secondary Board',
+    );
 
-    // Setup Workspace
-    const wsRes = await request(app.getHttpServer())
-      .post('/workspaces')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Task Workspace' });
-    workspaceId = wsRes.body.id;
-
-    // Add Member User to Workspace
-    await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/members`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ userId: memberUserId, role: 'member' });
-
-    // Setup Project
-    const prjRes = await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/projects`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Task Project' });
-    projectId = prjRes.body.id;
-
-    // Setup Board 1
-    const brdRes1 = await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/projects/${projectId}/boards`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Main Board' });
-    boardId = brdRes1.body.id;
-
-    // Setup Board 2 (for cross-board move test)
-    const brdRes2 = await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/projects/${projectId}/boards`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Secondary Board' });
-    secondBoardId = brdRes2.body.id;
-
-    // Setup Columns on Board 1
-    const colRes1 = await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'To Do', position: 1 });
-    columnId = colRes1.body.id;
-
-    const colRes2 = await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'In Progress', position: 2 });
-    secondColumnId = colRes2.body.id;
-
-    // Setup Column on Board 2
-    const colRes3 = await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${secondBoardId}/columns`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Other Board Column', position: 1 });
-    otherBoardColumnId = colRes3.body.id;
+    columnId = await createColumnSeed(
+      app,
+      adminToken,
+      workspaceId,
+      projectId,
+      boardId,
+      'To Do',
+      1,
+    );
+    secondColumnId = await createColumnSeed(
+      app,
+      adminToken,
+      workspaceId,
+      projectId,
+      boardId,
+      'In Progress',
+      2,
+    );
+    otherBoardColumnId = await createColumnSeed(
+      app,
+      adminToken,
+      workspaceId,
+      projectId,
+      secondBoardId,
+      'Other Board Column',
+      1,
+    );
   });
 
   afterAll(async () => {
@@ -127,82 +123,133 @@ describe('Task (e2e)', () => {
   });
 
   describe('POST /workspaces/:workspaceId/projects/:projectId/boards/:boardId/columns/:columnId/tasks', () => {
+    /**
+     * Rejects request when JWT is missing.
+     */
     it('rejects creation without JWT token (401)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`,
+        )
         .send({ title: 'Unauth Task', assigneeId: memberUserId });
 
       expect(res.status).toBe(401);
     });
 
+    /**
+     * Rejects task creation by non-admin member.
+     */
     it('rejects creation by non-admin workspace member (403)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`,
+        )
         .set('Authorization', `Bearer ${memberToken}`)
         .send({ title: 'Member Task', assigneeId: memberUserId });
 
       expect(res.status).toBe(403);
     });
 
+    /**
+     * Rejects task creation when title is missing.
+     */
     it('rejects missing required title field (400)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ assigneeId: memberUserId });
 
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Rejects task creation when assigneeId is missing.
+     */
     it('rejects missing required assigneeId field (400)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ title: 'No Assignee Task' });
 
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Rejects invalid priority values.
+     */
     it('rejects invalid priority enum value (400)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ title: 'Bad Priority', assigneeId: memberUserId, priority: 'URGENT' });
+        .send({
+          title: 'Bad Priority',
+          assigneeId: memberUserId,
+          priority: 'URGENT',
+        });
 
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Rejects malformed assigneeId UUID.
+     */
     it('rejects malformed assigneeId UUID (400)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ title: 'Bad UUID', assigneeId: 'not-a-uuid' });
 
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Rejects assignees who do not belong to the workspace.
+     */
     it('rejects assignee who is not a member of the workspace (400)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ title: 'Outsider Task', assigneeId: nonMemberUserId });
 
       expect(res.status).toBe(400);
-      expect(res.body.message).toContain('Assignee must be a member of this workspace');
+      expect(res.body.message).toContain(
+        'Assignee must be a member of this workspace',
+      );
     });
 
+    /**
+     * Returns 404 when column does not exist.
+     */
     it('returns 404 when column does not exist', async () => {
       const nonexistentColumnUuid = '00000000-0000-0000-0000-000000000000';
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${nonexistentColumnUuid}/tasks`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${nonexistentColumnUuid}/tasks`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ title: 'Lost Task', assigneeId: memberUserId });
 
       expect(res.status).toBe(404);
     });
 
+    /**
+     * Successfully creates task with minimal payload.
+     */
     it('creates a task with minimal body (201)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
           title: 'Minimal Task',
@@ -215,9 +262,14 @@ describe('Task (e2e)', () => {
       expect(res.body.assigneeId).toBe(memberUserId);
     });
 
+    /**
+     * Successfully creates task with full metadata.
+     */
     it('creates a task with full body (201)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
           title: 'Full Task',
@@ -238,9 +290,13 @@ describe('Task (e2e)', () => {
   });
 
   describe('GET /workspaces/:workspaceId/projects/:projectId/boards/:boardId/columns/:columnId/tasks', () => {
+    /**
+     * Lists tasks in a column without authentication.
+     */
     it('lists tasks in a column on open route without auth token', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`);
+      const res = await request(app.getHttpServer()).get(
+        `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`,
+      );
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
@@ -248,43 +304,66 @@ describe('Task (e2e)', () => {
       expect(titles).toContain('Full Task');
     });
 
+    /**
+     * Returns 400 for malformed column UUID.
+     */
     it('returns 400 for malformed column UUID', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/not-a-uuid/tasks`);
+      const res = await request(app.getHttpServer()).get(
+        `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/not-a-uuid/tasks`,
+      );
 
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Returns 404 for nonexistent column UUID.
+     */
     it('returns 404 for nonexistent column UUID', async () => {
       const nonexistentColumnUuid = '00000000-0000-0000-0000-000000000000';
-      const res = await request(app.getHttpServer())
-        .get(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${nonexistentColumnUuid}/tasks`);
+      const res = await request(app.getHttpServer()).get(
+        `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${nonexistentColumnUuid}/tasks`,
+      );
 
       expect(res.status).toBe(404);
     });
   });
 
   describe('PATCH /workspaces/:workspaceId/projects/:projectId/boards/:boardId/columns/:columnId/tasks/:taskId/move', () => {
+    /**
+     * Rejects moving task without JWT.
+     */
     it('rejects move without auth token (401)', async () => {
       const res = await request(app.getHttpServer())
-        .patch(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${taskId}/move`)
+        .patch(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${taskId}/move`,
+        )
         .send({ targetColumnId: secondColumnId });
 
       expect(res.status).toBe(401);
     });
 
+    /**
+     * Rejects move if caller is not an admin.
+     */
     it('rejects move by non-admin member (403)', async () => {
       const res = await request(app.getHttpServer())
-        .patch(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${taskId}/move`)
+        .patch(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${taskId}/move`,
+        )
         .set('Authorization', `Bearer ${memberToken}`)
         .send({ targetColumnId: secondColumnId });
 
       expect(res.status).toBe(403);
     });
 
+    /**
+     * Rejects cross-board moves.
+     */
     it('rejects cross-board move attempt (403)', async () => {
       const res = await request(app.getHttpServer())
-        .patch(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${taskId}/move`)
+        .patch(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${taskId}/move`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ targetColumnId: otherBoardColumnId });
 
@@ -292,19 +371,29 @@ describe('Task (e2e)', () => {
       expect(res.body.message).toContain('different board');
     });
 
+    /**
+     * Returns 404 when moving a nonexistent task.
+     */
     it('returns 404 when moving nonexistent task', async () => {
       const nonexistentTaskUuid = '00000000-0000-0000-0000-000000000000';
       const res = await request(app.getHttpServer())
-        .patch(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${nonexistentTaskUuid}/move`)
+        .patch(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${nonexistentTaskUuid}/move`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ targetColumnId: secondColumnId });
 
       expect(res.status).toBe(404);
     });
 
+    /**
+     * Successfully moves task to another column on the same board.
+     */
     it('moves task to target column on same board successfully (200)', async () => {
       const res = await request(app.getHttpServer())
-        .patch(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${taskId}/move`)
+        .patch(
+          `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${taskId}/move`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ targetColumnId: secondColumnId });
 
