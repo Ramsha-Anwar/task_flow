@@ -1,7 +1,16 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createTestApp } from './utils/test-app.util';
+import { createTestApp } from '../utils/test-app.util';
+import {
+  signupAndLogin,
+  createWorkspaceSeed,
+  addWorkspaceMemberSeed,
+  createProjectSeed,
+} from '../utils/seed-helpers';
 
+/**
+ * End-to-end tests for Board creation, listing, and validation within projects.
+ */
 describe('Board (e2e)', () => {
   let app: INestApplication;
   let adminToken: string;
@@ -25,45 +34,30 @@ describe('Board (e2e)', () => {
   beforeAll(async () => {
     app = await createTestApp();
 
-    // Signup & login Admin User
-    await request(app.getHttpServer())
-      .post('/auth/signup')
-      .send(adminUser);
+    const admin = await signupAndLogin(app, adminUser);
+    adminToken = admin.token;
 
-    const adminLogin = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: adminUser.email, password: adminUser.password });
-    adminToken = adminLogin.body.accessToken;
+    const member = await signupAndLogin(app, memberUser);
+    memberToken = member.token;
 
-    // Signup & login Member User
-    const memberSignup = await request(app.getHttpServer())
-      .post('/auth/signup')
-      .send(memberUser);
-
-    const memberLogin = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: memberUser.email, password: memberUser.password });
-    memberToken = memberLogin.body.accessToken;
-
-    // Create Workspace
-    const wsRes = await request(app.getHttpServer())
-      .post('/workspaces')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Board Test Workspace' });
-    workspaceId = wsRes.body.id;
-
-    // Add Member
-    await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/members`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ userId: memberSignup.body.id, role: 'member' });
-
-    // Create Project
-    const prjRes = await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/projects`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Sprint Project' });
-    projectId = prjRes.body.id;
+    workspaceId = await createWorkspaceSeed(
+      app,
+      adminToken,
+      'Board Test Workspace',
+    );
+    await addWorkspaceMemberSeed(
+      app,
+      adminToken,
+      workspaceId,
+      member.userId,
+      'member',
+    );
+    projectId = await createProjectSeed(
+      app,
+      adminToken,
+      workspaceId,
+      'Sprint Project',
+    );
   });
 
   afterAll(async () => {
@@ -71,6 +65,9 @@ describe('Board (e2e)', () => {
   });
 
   describe('POST /workspaces/:workspaceId/projects/:projectId/boards', () => {
+    /**
+     * Rejects request when unauthenticated.
+     */
     it('rejects creation without JWT token (401)', async () => {
       const res = await request(app.getHttpServer())
         .post(`/workspaces/${workspaceId}/projects/${projectId}/boards`)
@@ -79,6 +76,9 @@ describe('Board (e2e)', () => {
       expect(res.status).toBe(401);
     });
 
+    /**
+     * Rejects board creation if caller is a regular member instead of admin.
+     */
     it('rejects creation by non-admin workspace member (403)', async () => {
       const res = await request(app.getHttpServer())
         .post(`/workspaces/${workspaceId}/projects/${projectId}/boards`)
@@ -88,6 +88,9 @@ describe('Board (e2e)', () => {
       expect(res.status).toBe(403);
     });
 
+    /**
+     * Rejects creation when required name field is missing.
+     */
     it('rejects creation with missing required name field (400)', async () => {
       const res = await request(app.getHttpServer())
         .post(`/workspaces/${workspaceId}/projects/${projectId}/boards`)
@@ -97,6 +100,9 @@ describe('Board (e2e)', () => {
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Validates project UUID format in URL path.
+     */
     it('rejects creation with malformed project UUID (400)', async () => {
       const res = await request(app.getHttpServer())
         .post(`/workspaces/${workspaceId}/projects/invalid-uuid/boards`)
@@ -106,16 +112,24 @@ describe('Board (e2e)', () => {
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Rejects creation when parent project does not exist.
+     */
     it('returns 404 when parent project does not exist', async () => {
       const nonexistentProjectUuid = '00000000-0000-0000-0000-000000000000';
       const res = await request(app.getHttpServer())
-        .post(`/workspaces/${workspaceId}/projects/${nonexistentProjectUuid}/boards`)
+        .post(
+          `/workspaces/${workspaceId}/projects/${nonexistentProjectUuid}/boards`,
+        )
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ name: 'Test Board' });
 
       expect(res.status).toBe(404);
     });
 
+    /**
+     * Successfully creates board under a project.
+     */
     it('creates a new board as workspace admin (201)', async () => {
       const res = await request(app.getHttpServer())
         .post(`/workspaces/${workspaceId}/projects/${projectId}/boards`)
@@ -131,9 +145,13 @@ describe('Board (e2e)', () => {
   });
 
   describe('GET /workspaces/:workspaceId/projects/:projectId/boards', () => {
+    /**
+     * Verifies board listing on open route.
+     */
     it('returns boards list on open route without auth token', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/workspaces/${workspaceId}/projects/${projectId}/boards`);
+      const res = await request(app.getHttpServer()).get(
+        `/workspaces/${workspaceId}/projects/${projectId}/boards`,
+      );
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
@@ -141,17 +159,25 @@ describe('Board (e2e)', () => {
       expect(names).toContain('Sprint 1 Kanban');
     });
 
+    /**
+     * Validates malformed project UUID.
+     */
     it('returns 400 for malformed project UUID', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`/workspaces/${workspaceId}/projects/invalid-uuid/boards`);
+      const res = await request(app.getHttpServer()).get(
+        `/workspaces/${workspaceId}/projects/invalid-uuid/boards`,
+      );
 
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Returns 404 for nonexistent parent project.
+     */
     it('returns 404 when parent project does not exist', async () => {
       const nonexistentProjectUuid = '00000000-0000-0000-0000-000000000000';
-      const res = await request(app.getHttpServer())
-        .get(`/workspaces/${workspaceId}/projects/${nonexistentProjectUuid}/boards`);
+      const res = await request(app.getHttpServer()).get(
+        `/workspaces/${workspaceId}/projects/${nonexistentProjectUuid}/boards`,
+      );
 
       expect(res.status).toBe(404);
     });

@@ -1,9 +1,19 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { createTestApp } from './utils/test-app.util';
-import * as path from 'path';
-import * as fs from 'fs';
+import { createTestApp } from '../utils/test-app.util';
+import {
+  signupAndLogin,
+  createWorkspaceSeed,
+  addWorkspaceMemberSeed,
+  createProjectSeed,
+  createBoardSeed,
+  createColumnSeed,
+  createTaskSeed,
+} from '../utils/seed-helpers';
 
+/**
+ * End-to-end tests for Comment creation/listing and Attachment upload/download flows.
+ */
 describe('Comment & Attachment (e2e)', () => {
   let app: INestApplication;
   let adminToken: string;
@@ -11,7 +21,6 @@ describe('Comment & Attachment (e2e)', () => {
   let outsiderToken: string;
   let adminUserId: string;
   let memberUserId: string;
-  let outsiderUserId: string;
 
   let workspaceId: string;
   let projectId: string;
@@ -40,79 +49,63 @@ describe('Comment & Attachment (e2e)', () => {
   beforeAll(async () => {
     app = await createTestApp();
 
-    // Signup & login Admin User
-    const adminSignup = await request(app.getHttpServer())
-      .post('/auth/signup')
-      .send(adminUser);
-    adminUserId = adminSignup.body.id;
+    const admin = await signupAndLogin(app, adminUser);
+    adminToken = admin.token;
+    adminUserId = admin.userId;
 
-    const adminLogin = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: adminUser.email, password: adminUser.password });
-    adminToken = adminLogin.body.accessToken;
+    const member = await signupAndLogin(app, memberUser);
+    memberToken = member.token;
+    memberUserId = member.userId;
 
-    // Signup & login Member User
-    const memberSignup = await request(app.getHttpServer())
-      .post('/auth/signup')
-      .send(memberUser);
-    memberUserId = memberSignup.body.id;
+    const outsider = await signupAndLogin(app, outsiderUser);
+    outsiderToken = outsider.token;
 
-    const memberLogin = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: memberUser.email, password: memberUser.password });
-    memberToken = memberLogin.body.accessToken;
-
-    // Signup & login Outsider User
-    const outsiderSignup = await request(app.getHttpServer())
-      .post('/auth/signup')
-      .send(outsiderUser);
-    outsiderUserId = outsiderSignup.body.id;
-
-    const outsiderLogin = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: outsiderUser.email, password: outsiderUser.password });
-    outsiderToken = outsiderLogin.body.accessToken;
-
-    // Workspace setup
-    const wsRes = await request(app.getHttpServer())
-      .post('/workspaces')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Comment/Attachment Workspace' });
-    workspaceId = wsRes.body.id;
-
-    // Add Member
-    await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/members`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ userId: memberUserId, role: 'member' });
-
-    // Project setup
-    const prjRes = await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/projects`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Comment/Attachment Project' });
-    projectId = prjRes.body.id;
-
-    // Board setup
-    const brdRes = await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/projects/${projectId}/boards`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Comment/Attachment Board' });
-    boardId = brdRes.body.id;
-
-    // Column setup
-    const colRes = await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'In Progress', position: 1 });
-    columnId = colRes.body.id;
-
-    // Task setup
-    const taskRes = await request(app.getHttpServer())
-      .post(`/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks`)
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ title: 'Task For Comments', assigneeId: memberUserId });
-    taskId = taskRes.body.id;
+    workspaceId = await createWorkspaceSeed(
+      app,
+      adminToken,
+      'Comment/Attachment Workspace',
+    );
+    await addWorkspaceMemberSeed(
+      app,
+      adminToken,
+      workspaceId,
+      memberUserId,
+      'member',
+    );
+    projectId = await createProjectSeed(
+      app,
+      adminToken,
+      workspaceId,
+      'Comment/Attachment Project',
+    );
+    boardId = await createBoardSeed(
+      app,
+      adminToken,
+      workspaceId,
+      projectId,
+      'Comment/Attachment Board',
+    );
+    columnId = await createColumnSeed(
+      app,
+      adminToken,
+      workspaceId,
+      projectId,
+      boardId,
+      'In Progress',
+      1,
+    );
+    taskId = await createTaskSeed(
+      app,
+      adminToken,
+      workspaceId,
+      projectId,
+      boardId,
+      columnId,
+      {
+        title: 'Task For Comments',
+        assigneeId: memberUserId,
+      },
+    );
   });
 
   afterAll(async () => {
@@ -123,6 +116,9 @@ describe('Comment & Attachment (e2e)', () => {
     const basePath = () =>
       `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${taskId}/comments`;
 
+    /**
+     * Rejects comment creation without JWT.
+     */
     it('rejects comment creation without auth token (401)', async () => {
       const res = await request(app.getHttpServer())
         .post(basePath())
@@ -131,6 +127,9 @@ describe('Comment & Attachment (e2e)', () => {
       expect(res.status).toBe(401);
     });
 
+    /**
+     * Rejects comments posted by non-workspace members.
+     */
     it('rejects comment creation by non-workspace-member (403)', async () => {
       const res = await request(app.getHttpServer())
         .post(basePath())
@@ -140,6 +139,9 @@ describe('Comment & Attachment (e2e)', () => {
       expect(res.status).toBe(403);
     });
 
+    /**
+     * Rejects empty comment payloads.
+     */
     it('rejects comment creation with empty body or text (400)', async () => {
       const res = await request(app.getHttpServer())
         .post(basePath())
@@ -149,6 +151,9 @@ describe('Comment & Attachment (e2e)', () => {
       expect(res.status).toBe(400);
     });
 
+    /**
+     * Rejects comment creation for nonexistent tasks.
+     */
     it('rejects comment creation for nonexistent task (404)', async () => {
       const nonexistentTaskUuid = '00000000-0000-0000-0000-000000000000';
       const path = `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${nonexistentTaskUuid}/comments`;
@@ -161,6 +166,9 @@ describe('Comment & Attachment (e2e)', () => {
       expect(res.status).toBe(404);
     });
 
+    /**
+     * Successfully creates comment as a regular workspace member.
+     */
     it('creates a comment successfully as a regular workspace member (201)', async () => {
       const res = await request(app.getHttpServer())
         .post(basePath())
@@ -173,6 +181,9 @@ describe('Comment & Attachment (e2e)', () => {
       expect(res.body.authorId).toBe(memberUserId);
     });
 
+    /**
+     * Successfully creates comment as workspace admin.
+     */
     it('creates a comment successfully as a workspace admin (201)', async () => {
       const res = await request(app.getHttpServer())
         .post(basePath())
@@ -185,6 +196,9 @@ describe('Comment & Attachment (e2e)', () => {
       expect(res.body.authorId).toBe(adminUserId);
     });
 
+    /**
+     * Lists task comments on open route.
+     */
     it('lists comments on open route without auth token', async () => {
       const res = await request(app.getHttpServer()).get(basePath());
 
@@ -201,6 +215,9 @@ describe('Comment & Attachment (e2e)', () => {
     const basePath = () =>
       `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${taskId}/attachments`;
 
+    /**
+     * Rejects attachment upload without auth token.
+     */
     it('rejects attachment upload without auth token (401)', async () => {
       const res = await request(app.getHttpServer())
         .post(basePath())
@@ -209,6 +226,9 @@ describe('Comment & Attachment (e2e)', () => {
       expect(res.status).toBe(401);
     });
 
+    /**
+     * Rejects attachment upload by non-member.
+     */
     it('rejects attachment upload by non-workspace-member (403)', async () => {
       const res = await request(app.getHttpServer())
         .post(basePath())
@@ -218,7 +238,10 @@ describe('Comment & Attachment (e2e)', () => {
       expect(res.status).toBe(403);
     });
 
-    it('rejects attachment upload when no file is provided (404 or 400)', async () => {
+    /**
+     * Rejects upload when no file is attached.
+     */
+    it('rejects attachment upload when no file is provided (400 or 404)', async () => {
       const res = await request(app.getHttpServer())
         .post(basePath())
         .set('Authorization', `Bearer ${memberToken}`);
@@ -226,6 +249,9 @@ describe('Comment & Attachment (e2e)', () => {
       expect([400, 404]).toContain(res.status);
     });
 
+    /**
+     * Rejects upload for nonexistent tasks.
+     */
     it('rejects attachment upload for nonexistent task (404)', async () => {
       const nonexistentTaskUuid = '00000000-0000-0000-0000-000000000000';
       const path = `/workspaces/${workspaceId}/projects/${projectId}/boards/${boardId}/columns/${columnId}/tasks/${nonexistentTaskUuid}/attachments`;
@@ -238,11 +264,18 @@ describe('Comment & Attachment (e2e)', () => {
       expect(res.status).toBe(404);
     });
 
+    /**
+     * Successfully uploads attachment multipart file.
+     */
     it('uploads an attachment successfully via multipart file field (201)', async () => {
       const res = await request(app.getHttpServer())
         .post(basePath())
         .set('Authorization', `Bearer ${memberToken}`)
-        .attach('file', Buffer.from('sample file content for test'), 'spec-doc.txt');
+        .attach(
+          'file',
+          Buffer.from('sample file content for test'),
+          'spec-doc.txt',
+        );
 
       expect(res.status).toBe(201);
       expect(res.body).toHaveProperty('_id');
@@ -252,6 +285,9 @@ describe('Comment & Attachment (e2e)', () => {
       attachmentId = res.body._id;
     });
 
+    /**
+     * Lists attachments on open route.
+     */
     it('lists attachments on open route without auth token', async () => {
       const res = await request(app.getHttpServer()).get(basePath());
 
@@ -261,25 +297,37 @@ describe('Comment & Attachment (e2e)', () => {
       expect(res.body[0].originalName).toBe('spec-doc.txt');
     });
 
+    /**
+     * Downloads stored attachment file content.
+     */
     it('downloads the attachment file on open route', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`${basePath()}/${attachmentId}/download`);
+      const res = await request(app.getHttpServer()).get(
+        `${basePath()}/${attachmentId}/download`,
+      );
 
       expect(res.status).toBe(200);
       expect(res.text).toBe('sample file content for test');
     });
 
+    /**
+     * Returns 404 for downloading nonexistent attachment Mongo ID.
+     */
     it('returns 404 for downloading nonexistent attachment Mongo ID', async () => {
       const fakeObjectId = '507f1f77bcf86cd799439011';
-      const res = await request(app.getHttpServer())
-        .get(`${basePath()}/${fakeObjectId}/download`);
+      const res = await request(app.getHttpServer()).get(
+        `${basePath()}/${fakeObjectId}/download`,
+      );
 
       expect(res.status).toBe(404);
     });
 
+    /**
+     * Returns 404 for downloading malformed attachment Mongo ID.
+     */
     it('returns 404 for downloading malformed attachment Mongo ID', async () => {
-      const res = await request(app.getHttpServer())
-        .get(`${basePath()}/invalid-mongo-id/download`);
+      const res = await request(app.getHttpServer()).get(
+        `${basePath()}/invalid-mongo-id/download`,
+      );
 
       expect(res.status).toBe(404);
     });
