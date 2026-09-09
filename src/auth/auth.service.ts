@@ -6,16 +6,30 @@ import { SignupDto } from './dto/signup.dto';
 import { JwtService } from '@nestjs/jwt';
 import {compare} from 'bcrypt';
 
-
+/**
+ * Handles user authentication: signup, login, and password hashing.
+ * Delegates all user persistence to UsersService and issues JWTs via JwtService.
+ */
 @Injectable()
 export class AuthService {
-    
+
     constructor(private usersService: UsersService,private jwtService: JwtService) {}
 
+   /**
+    * Hashes a plaintext password using bcrypt before it's stored.
+    * @param password - The plaintext password to hash.
+    * @returns The bcrypt hash of the password.
+    */
    async hashPassword(password: string): Promise<string> {
           return hash(password, 10);
     }
 
+    /**
+     * Registers a new user account.
+     * @param dto - Signup payload containing email, name, and plaintext password.
+     * @returns The newly created user, with the password field stripped out.
+     * @throws {ConflictException} If a user with this email already exists.
+     */
     async signUp(dto:SignupDto): Promise<Omit<User, 'password'>> {
     const user = await this.usersService.checkExistingUser(dto.email);
     if (user) {
@@ -31,6 +45,15 @@ export class AuthService {
     return result;
   }
 
+  /**
+   * Authenticates a user and issues a JWT access token.
+   * Uses an enumeration-safe error: both "no such user" and "wrong password"
+   * return the same message, so a caller can't tell which one failed.
+   * @param email - The user's email address.
+   * @param password - The plaintext password to verify.
+   * @returns An object containing the signed JWT access token.
+   * @throws {UnauthorizedException} If the email doesn't exist or the password doesn't match.
+   */
   async login(email: string, password: string): Promise<{ accessToken: string }> {
     const user = await this.usersService.checkExistingUser(email);
     if (!user) {

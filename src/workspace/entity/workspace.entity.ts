@@ -1,5 +1,7 @@
-import { Column, PrimaryGeneratedColumn , Entity, CreateDateColumn,OneToMany } from "typeorm";
-import {WorkspaceMember} from "./workspace-member.entity";
+import { Column, PrimaryGeneratedColumn, Entity, CreateDateColumn, OneToMany, ManyToOne, JoinColumn } from "typeorm";
+import { WorkspaceMember } from "./workspace-member.entity";
+import { Project } from "../../projects/entity/project.entity";
+import { User } from "../../users/entities/users.entity";
 
 @Entity()
 export class Workspace {
@@ -8,7 +10,11 @@ export class Workspace {
 
   @Column()
   ownerId!: string;
-  
+
+  @ManyToOne(() => User, { onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'ownerId' })
+  owner!: User;
+
   @Column()
   name!: string;
 
@@ -18,4 +24,6 @@ export class Workspace {
   @OneToMany(() => WorkspaceMember, (workspaceMember) => workspaceMember.workspace)
   members!: WorkspaceMember[];
 
+  @OneToMany(() => Project, (project) => project.workspace)
+  projects!: Project[];
 }
