@@ -1,4 +1,5 @@
-import { WorkspaceController } from './workspace/workspace.controller';
+import { ColumnModule } from './column/column.module';
+import { ProjectModule } from './projects/project.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { AuthModule } from './auth/auth.module';
 import { Module } from '@nestjs/common';
@@ -8,7 +9,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MongooseModule } from '@nestjs/mongoose';
 import { UsersModule } from './users/users.module';
-
+import { BoardModule } from './board/board.module';
+import { TaskModule } from './task/task.module';
 
 @Module({
   imports: [
@@ -21,16 +23,17 @@ import { UsersModule } from './users/users.module';
       useFactory: (configService) => ({
         type: 'postgres',
         url: configService.get('POSTGRES_URL'),
-        autoLoadEntities: true, synchronize: true
+        autoLoadEntities: true,
+        synchronize: true,
       }),
     }),
-
+    ProjectModule,
     UsersModule,
-
     AuthModule,
-
     WorkspaceModule,
-
+    BoardModule,
+    ColumnModule,
+    TaskModule,
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -38,10 +41,8 @@ import { UsersModule } from './users/users.module';
         uri: configService.get('MONGO_URL'),
       }),
     }),
-
   ],
-  controllers: [
-     AppController],
+  controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}
