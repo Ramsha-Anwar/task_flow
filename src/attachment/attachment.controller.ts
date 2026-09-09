@@ -29,19 +29,20 @@ export class AttachmentController {
   }
 
   @UseGuards(AuthGuard('jwt'), WorkspaceRolesGuard)
-@Roles('admin', 'member')
-@Post()
-@UseInterceptors(FileInterceptor('file', multerConfig))
-async uploadAttachment(
-  @Param('taskId', ParseUUIDPipe) taskId: string,
-  @UploadedFile() file: Express.Multer.File,
-  @Req() req,
-) {
-  if (!file) {
-    throw new NotFoundException('No file uploaded');
+  @Roles('admin', 'member')
+  @Post()
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadAttachment(
+    @Param('taskId', ParseUUIDPipe) taskId: string,
+    @Param('workspaceId', ParseUUIDPipe) workspaceId: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req,
+  ) {
+    if (!file) {
+      throw new NotFoundException('No file uploaded');
+    }
+    return this.attachmentService.createAttachment(taskId, workspaceId, req.user.id, file);
   }
-  return this.attachmentService.createAttachment(taskId, req.user.id, file);
-}
 
   @Get(':attachmentId/download')
   async downloadAttachment(

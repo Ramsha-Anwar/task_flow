@@ -13,12 +13,16 @@ import { BoardModule } from './board/board.module';
 import { TaskModule } from './task/task.module';
 import { CommentModule } from './comment/comment.module';
 import { AttachmentModule } from './attachment/attachment.module';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { NotificationModule } from './notification/notification.module';
+import { ActivityModule } from './activity/activity.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    EventEmitterModule.forRoot(),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -38,6 +42,8 @@ import { AttachmentModule } from './attachment/attachment.module';
     TaskModule,
     CommentModule,
     AttachmentModule,
+    NotificationModule,
+    ActivityModule,
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

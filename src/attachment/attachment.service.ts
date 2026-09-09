@@ -3,8 +3,10 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Attachment, AttachmentDocument } from './schema/attachment.schema';
 import { Task } from '../task/entity/task.entity';
+import { Events } from '../common/event';
 
 @Injectable()
 export class AttachmentService {
@@ -13,10 +15,12 @@ export class AttachmentService {
     private attachmentModel: Model<AttachmentDocument>,
     @InjectRepository(Task)
     private taskRepository: Repository<Task>,
+    private eventEmitter: EventEmitter2,
   ) {}
 
   async createAttachment(
     taskId: string,
+    workspaceId: string,
     uploaderId: string,
     file: Express.Multer.File,
   ): Promise<Attachment> {
@@ -34,7 +38,18 @@ export class AttachmentService {
       mimeType: file.mimetype,
       size: file.size,
     });
-    return attachment.save();
+    const savedAttachment = await attachment.save();
+
+    this.eventEmitter.emit(Events.ATTACHMENT_UPLOADED, {
+      attachmentId: savedAttachment._id.toString(),
+      taskId: task.id,
+      taskTitle: task.title,
+      workspaceId,
+      assigneeId: task.assigneeId,
+      actorId: uploaderId,
+    });
+
+    return savedAttachment;
   }
 
   async findAttachmentsByTaskId(taskId: string): Promise<Attachment[]> {
