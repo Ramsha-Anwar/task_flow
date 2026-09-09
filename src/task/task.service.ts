@@ -14,6 +14,11 @@ import { CreateTaskDto } from './dto/create-task.dto';
 import { MoveTaskDto } from './dto/move-task.dto';
 import { Events } from '../common/event';
 
+/**
+ * Handles task creation, lookup, and moving tasks between columns.
+ * Emits events on create/move so Notification and ActivityLog listeners
+ * (see PR 5) can react without this service knowing they exist.
+ */
 @Injectable()
 export class TaskService {
   constructor(
@@ -26,6 +31,17 @@ export class TaskService {
     private eventEmitter: EventEmitter2,
   ) {}
 
+  /**
+   * Creates a new task in the given column, assigned to a workspace member.
+   * Emits a TASK_CREATED event after saving.
+   * @param columnId - The column this task belongs to.
+   * @param workspaceId - The workspace this task belongs to (needed for the event payload).
+   * @param dto - Task details: title, description, priority, dueDate, assigneeId.
+   * @param actorId - The ID of the user creating the task (the event's actor).
+   * @returns The newly created Task entity.
+   * @throws {NotFoundException} If the column doesn't exist.
+   * @throws {BadRequestException} If the assignee isn't a member of this workspace.
+   */
   async createTask(
     columnId: string,
     workspaceId: string,
@@ -77,6 +93,12 @@ export class TaskService {
     return savedTask;
   }
 
+  /**
+   * Lists all tasks in a given column.
+   * @param columnId - The column's UUID.
+   * @returns An array of Task entities.
+   * @throws {NotFoundException} If the column doesn't exist.
+   */
   async findTasksByColumnId(columnId: string): Promise<Task[]> {
     const column = await this.columnRepository.findOne({
       where: { id: columnId },
@@ -88,6 +110,17 @@ export class TaskService {
     return this.taskRepository.find({ where: { columnId } });
   }
 
+  /**
+   * Moves a task to a different column, as long as the target column
+   * is on the same board. Emits a TASK_MOVED event after saving.
+   * @param taskId - The task to move.
+   * @param workspaceId - The workspace this task belongs to (needed for the event payload).
+   * @param dto - Contains the targetColumnId to move the task into.
+   * @param actorId - The ID of the user moving the task (the event's actor).
+   * @returns The updated Task entity.
+   * @throws {NotFoundException} If the task, current column, or target column doesn't exist.
+   * @throws {ForbiddenException} If the target column is on a different board.
+   */
   async moveTask(
     taskId: string,
     workspaceId: string,

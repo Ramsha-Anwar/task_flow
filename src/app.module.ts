@@ -21,6 +21,7 @@ import { ActivityModule } from './activity/activity.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      envFilePath: process.env.NODE_ENV === 'test' ? 'test/.env.test' : '.env',
     }),
     EventEmitterModule.forRoot(),
     TypeOrmModule.forRootAsync({
@@ -28,7 +29,7 @@ import { ActivityModule } from './activity/activity.module';
       inject: [ConfigService],
       useFactory: (configService) => ({
         type: 'postgres',
-        url: configService.get('POSTGRES_URL'),
+        url: configService.get('DATABASE_URL') || configService.get('POSTGRES_URL'),
         autoLoadEntities: true,
         synchronize: true,
       }),
@@ -48,7 +49,7 @@ import { ActivityModule } from './activity/activity.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService) => ({
-        uri: configService.get('MONGO_URL'),
+        uri: configService.get('MONGO_URI') || configService.get('MONGO_URL'),
       }),
     }),
   ],
