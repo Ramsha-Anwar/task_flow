@@ -1,4 +1,3 @@
-
 import { Injectable } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -17,7 +16,6 @@ export class WorkspaceService {
     private dataSource: DataSource,
   ) {}
 
-
   async createWorkspace(name: string, ownerId: string): Promise<Workspace> {
     return this.dataSource.transaction(async (manager) => {
       const workspace = manager.create(Workspace, { name, ownerId });
@@ -31,10 +29,18 @@ export class WorkspaceService {
       return savedWorkspace;
     });
   }
+
   async findWorkspaceById(workspaceId: string): Promise<Workspace | null> {
     return this.workspaceRepository.findOne({
       where: { id: workspaceId },
-      
     });
+  }
+
+  async findWorkspacesByUserId(userId: string): Promise<Workspace[]> {
+    const memberships = await this.workspaceMemberRepository.find({
+      where: { user: { id: userId } },
+      relations: {workspace:true},
+    });
+    return memberships.map((membership) => membership.workspace);
   }
 }
