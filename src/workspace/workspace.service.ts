@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Workspace } from './entity/workspace.entity';
@@ -39,8 +39,30 @@ export class WorkspaceService {
   async findWorkspacesByUserId(userId: string): Promise<Workspace[]> {
     const memberships = await this.workspaceMemberRepository.find({
       where: { user: { id: userId } },
-      relations: {workspace:true},
+      relations: { workspace: true },
     });
     return memberships.map((membership) => membership.workspace);
+  }
+
+  async addMember(workspaceId: string, dto: { userId: string; role: string }): Promise<WorkspaceMember> {
+    const workspace = await this.workspaceRepository.findOne({ where: { id: workspaceId } });
+    if (!workspace) {
+      throw new NotFoundException('Workspace not found');
+    }
+
+    const existing = await this.workspaceMemberRepository.findOne({
+      where: { workspace: { id: workspaceId }, user: { id: dto.userId } },
+    });
+    if (existing) {
+      throw new BadRequestException('User is already a member of this workspace');
+    }
+
+    const member = this.workspaceMemberRepository.create({
+      workspace: { id: workspaceId } as Workspace,
+      user: { id: dto.userId } as User,
+      role: dto.role,
+    });
+
+    return this.workspaceMemberRepository.save(member);
   }
 }
